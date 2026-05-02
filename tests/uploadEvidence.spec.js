@@ -1,25 +1,34 @@
 /**
  * uploadEvidence.spec.js  —  Stage 3: Attach Evidence & Set Status to Pass
  *
- * Reads issues.json (written by Stage 2) and dynamically generates one
- * Playwright test per issue.  Tests run in parallel, so multiple issues
- * are processed simultaneously — controlled by the --workers flag.
+ * Generates one Playwright test per row in the CSV file (which always exists
+ * before the pipeline starts).  The Jira issue link for each test is read from
+ * issues.json at runtime inside beforeAll — by which point stage 2 has already
+ * written it.
  *
- * For each issue the test:
- *  1. Navigates to the Jira issue page.
- *  2. Skips if evidence is already uploaded or the issue previously failed.
- *  3. Attaches the matching .docx file via the quick-add attachment button.
- *  4. Sets the issue status to Pass.
- *  5. On the final issue, writes a timestamped results CSV to OUTPUT_PATH.
+ * WHY TESTS ARE GENERATED FROM THE CSV, NOT FROM issues.json:
+ *   Playwright collects all spec files and registers every test() call BEFORE
+ *   running any tests.  On a first-ever full-pipeline run issues.json does not
+ *   exist at collection time (stage 2 hasn't run yet), so it cannot be used to
+ *   drive test generation.  The CSV, however, is the pipeline's original input
+ *   and is always present.  Using it for test titles means tests are correctly
+ *   discovered on the very first run, and issues.json is only needed at
+ *   execution time (inside beforeAll / inside each test body) — safely after
+ *   stage 2 has finished.
  *
- * Playwright project:  evidence-only  (standalone)
- *                      evidence-with-scenarios  (depends on scenarios-only)
- * Run command:         npx playwright test --project=evidence-only --workers=4
+ * WHY PER-ISSUE SCRATCH FILES INSTEAD OF MUTATING AN ARRAY IN MEMORY:
+ *   Playwright runs each parallel worker in a separate Node.js process, so
+ *   in-memory mutations are invisible across workers.  Each worker writes a
+ *   uniquely-named scratch file (keyed by CSV row index) — no locking needed.
+ *   afterAll merges them all into the final results CSV.
+ *
+ * Playwright project:  stage-3-evidence  (full pipeline, depends on stage-2-collect)
+ *                      evidence-only     (standalone re-run)
+ * Run command (full):  npx playwright test --project=stage-1-import --project=stage-2-collect --project=stage-3-evidence
+ * Run command (alone): npx playwright test --project=evidence-only
  */
 
-import { test, chromium, expect } from '@playwright/test';
-import GetCreatedIssuesPage from '../pages/getCreatedIssuesPage';
-import EvidenceFilePage from '../pages/EvidenceFilePage';
+import { test } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
@@ -27,124 +36,183 @@ import { parse } from 'csv-parse/sync';
 import { stringify } from 'csv-stringify/sync';
 import { retryAction } from '../utils/retryHelper';
 
-// Load environment variables from the .env file in the project root
+// Load .env — safe at module level, only populates process.env
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-/**
- * Reads a CSV file and returns its rows as an array of objects.
- * (Defined here for potential future use; Stage 3 primarily reads issues.json.)
- *
- * @param {string} csvPath - Absolute path to the CSV file.
- * @returns {Promise<Array<object>>} Parsed CSV records with added testLink/testStatus fields.
- */
-async function readTestCasesData(csvPath) {
-    const csvContent = fs.readFileSync(csvPath, 'utf8');
-    const records = parse(csvContent, {
-        columns: (header) => header.map(col => col.trim()),
+// ── Module-level path constants (no file I/O) ─────────────────────────────────
+const folderPath = process.env.TEST_DATA_PATH;
+const resultsPath = process.env.OUTPUT_PATH;
+const issuesFilePath = path.resolve(__dirname, '../issues.json');
+const SCRATCH_DIR = path.resolve(__dirname, '../results-scratch');
+
+// ── Read the CSV at collection time ───────────────────────────────────────────
+// The CSV is the pipeline's original input and is always present before any
+// stage runs.  Reading it here is safe and gives us the test titles we need.
+//
+// folderPath comes from .env which is loaded above, so it is available now.
+const csvFileName = fs.readdirSync(folderPath, { withFileTypes: true })
+    .filter(f => f.isFile())
+    .map(f => f.name)
+    .find(name => name.toLowerCase().endsWith('.csv'));
+
+if (!csvFileName) {
+    throw new Error(`No CSV file found in TEST_DATA_PATH: ${folderPath}`);
+}
+
+const csvRows = parse(
+    fs.readFileSync(path.join(folderPath, csvFileName), 'utf8'),
+    {
+        columns: header => header.map(col => col.trim()),
         skip_empty_lines: true,
         trim: true,
-        on_record: (record) => ({
-            ...record,
-            testLink: null,
-            testStatus: null
-        })
-    });
-
-    if (records.length === 0) {
-        throw new Error(`CSV file ${csvPath} is empty or has no data rows`);
     }
-    return records;
+);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Reads issues.json at runtime (called from beforeAll, never at collection time).
+ * Returns a Map keyed by Summary for O(1) lookup inside each test.
+ *
+ * @returns {Map<string, object>} Summary → issue record
+ */
+function loadIssuesBySummary() {
+    if (!fs.existsSync(issuesFilePath)) {
+        throw new Error(
+            `issues.json not found at ${issuesFilePath}.\n` +
+            `Ensure stage-2-collect has completed before running stage-3-evidence.`
+        );
+    }
+    const records = JSON.parse(fs.readFileSync(issuesFilePath, 'utf8'));
+    return new Map(records.map(r => [r.Summary, r]));
 }
 
 /**
- * Matches scraped Jira issues back to CSV rows by Summary name.
- * Sets testLink and testStatus on each matched record.
+ * Writes the outcome for one issue to an isolated scratch file.
+ * Filename = CSV row index, guaranteeing uniqueness across parallel workers.
  *
- * @param {Array<object>} dataFromCSV - CSV records.
- * @param {Array<{issueName: string, issueLink: string}>} createdIssues - Scraped from Jira.
- * @returns {Promise<Array<object>>} Enriched CSV records.
+ * @param {number} index
+ * @param {string} testStatus  'Pass' | 'Fail'
  */
-async function mapIssuesCreated(dataFromCSV, createdIssues) {
-    for (const record of dataFromCSV) {
-        const matchingIssue = createdIssues.find(issue => issue.issueName === record.Summary);
-        if (matchingIssue) {
-            record.testLink = matchingIssue.issueLink;
-            record.testStatus = 'Created';
-        } else {
-            record.testStatus = 'Not Created';
-        }
-    }
-    return dataFromCSV;
+function writeResult(index, testStatus) {
+    fs.mkdirSync(SCRATCH_DIR, { recursive: true });
+    fs.writeFileSync(
+        path.join(SCRATCH_DIR, `${index}.json`),
+        JSON.stringify({ index, testStatus }),
+        'utf8'
+    );
 }
 
-// Use saved browser auth state so no manual login is required
+// ── Spec ──────────────────────────────────────────────────────────────────────
+
 test.use({ storageState: 'auth.json' });
 
 test.describe('Upload evidence (parallel)', () => {
-    // Run each dynamically generated test in its own browser context (parallel)
     test.describe.configure({ mode: 'parallel' });
 
-    // ── Read shared state once at describe-block level (before tests are generated) ──
-    const folderName = process.env.FOLDER_NAME;
-    const folderPath = process.env.TEST_DATA_PATH;
-    const resultsPath = process.env.OUTPUT_PATH;
-    const issuesFilePath = `issues.json`;
+    // issuesBySummary is populated in beforeAll (runtime) and used in each test.
+    // It is declared here so it is in scope for every test in this describe block.
+    let issuesBySummary = new Map();
 
-    // Fail fast if issues.json is missing — Stage 2 must run first
-    if (!fs.existsSync(issuesFilePath)) {
-        throw new Error(`Issues file not found: ${issuesFilePath}`);
-    }
+    // ── beforeAll: load issues.json now that stage 2 has finished ─────────────
+    // beforeAll runs at execution time, not at collection time, so issues.json
+    // is guaranteed to exist by the time this runs in the full pipeline.
+    test.beforeAll(async () => {
+        issuesBySummary = loadIssuesBySummary();
+    });
 
-    // Load the full scenario map from issues.json written by Stage 2
-    const scenarioMap = JSON.parse(fs.readFileSync(issuesFilePath, 'utf8'));
+    // ── afterAll: merge scratch files → write final CSV ───────────────────────
+    test.afterAll(async () => {
+        // Build a status map from every scratch file written by all workers
+        const statusMap = {};
+        if (fs.existsSync(SCRATCH_DIR)) {
+            for (const file of fs.readdirSync(SCRATCH_DIR)) {
+                if (!file.endsWith('.json')) continue;
+                try {
+                    const { index, testStatus } = JSON.parse(
+                        fs.readFileSync(path.join(SCRATCH_DIR, file), 'utf8')
+                    );
+                    statusMap[index] = testStatus;
+                } catch {
+                    // Corrupt scratch file — record keeps its issues.json status
+                }
+            }
+        }
 
-    // ── Dynamically generate one test per issue ────────────────────────────────
-    scenarioMap.forEach((record, index, array) => {
+        // Re-read issues.json here in case afterAll runs in a different worker
+        // process than the beforeAll that populated issuesBySummary above.
+        const issuesRecords = JSON.parse(fs.readFileSync(issuesFilePath, 'utf8'));
 
-        test(`Upload for ${record.Summary}`, async ({ page }, testInfo) => {
-            // Extend timeout — file uploads and status changes can be slow
-            await test.setTimeout(500000);
+        // Merge statuses back in original CSV order.
+        // Rows that were skipped or 'Not Created' keep their existing status.
+        const finalRecords = issuesRecords.map((record, index) => ({
+            ...record,
+            testStatus: statusMap[index] ?? record.testStatus,
+        }));
 
-            // Find the CSV file in the test data folder
-            const files = fs.readdirSync(folderPath, { withFileTypes: true });
-            const csvFile = files
-                .filter(f => f.isFile())
-                .map(f => f.name)
-                .find(name => name.toLowerCase().endsWith('.csv'));
+        const outputCsvPath = path.join(
+            resultsPath,
+            `${csvFileName}_results_${new Date().toISOString().replace(/:/g, '-')}.csv`
+        );
+        fs.writeFileSync(
+            outputCsvPath,
+            stringify(finalRecords, {
+                header: true,
+                quoted: value => typeof value === 'string' && value.includes('\n'),
+            }),
+            'utf8'
+        );
+        console.log(`Results written to ${outputCsvPath}`);
 
-            if (!csvFile) {
-                throw new Error(`No CSV file found in folder: ${folderPath}`);
+        // Clean up scratch directory now that the CSV is safely written
+        fs.rmSync(SCRATCH_DIR, { recursive: true, force: true });
+    });
+
+    // ── One test per CSV row ───────────────────────────────────────────────────
+    // csvRows is read from the CSV at collection time (always available), so
+    // Playwright can register all test titles on the very first pipeline run
+    // before issues.json exists.  The Jira link is resolved at runtime below.
+    csvRows.forEach((row, index) => {
+
+        test(`Upload for ${row.Summary}`, async ({ page }) => {
+            test.setTimeout(500000);
+
+            // ── Resolve the Jira link at runtime from the loaded issues map ───
+            // issuesBySummary was populated in beforeAll, which ran after stage 2
+            // finished writing issues.json.
+            const issue = issuesBySummary.get(row.Summary);
+
+            if (!issue || issue.testStatus === 'Not Created') {
+                // Issue was not created during import — nothing to upload
+                console.log(`Skipping "${row.Summary}" — not found in issues.json`);
+                test.skip();
+                return;
             }
 
-            // Verify link.json exists (used for fallback navigation if needed)
-            const filePath = `link.json`;
-            if (!fs.existsSync(filePath)) {
-                throw new Error(`Link file not found: ${filePath}`);
-            }
-
-            // Navigate directly to this issue's page using the stored link
-            await page.goto(record.testLink, { waitUntil: 'domcontentloaded' });
+            // Navigate to the Jira issue page
+            await page.goto(issue.testLink, { waitUntil: 'domcontentloaded' });
             await page.getByText('Apps', { exact: true }).waitFor({ state: 'visible' });
 
-            // Determine the expected evidence filename for this issue
-            const wordFileName = `${record.Summary}.docx`;
+            const wordFileName = `${row.Summary}.docx`;
+            const wordFilePath = path.join(folderPath, wordFileName);
 
-            // ── Skip conditions ────────────────────────────────────────────────
-
-            // If the issue already shows Pass and the evidence file is present, skip
+            // ── Skip: already passed in a previous run ─────────────────────────
             if (
                 await page.getByRole('button', { name: 'Pass' }).isVisible() &&
-                await page.locator(`text=${wordFileName}`).first().isVisible
+                await page.locator(`text=${wordFileName}`).first().isVisible()
             ) {
-                test.skip('Evidence already uploaded, skipping');
+                test.skip();
+                return;
             }
 
-            // If the issue is already marked Failed, skip to avoid overwriting the status
+            // ── Skip: already failed in a previous run ─────────────────────────
             if (await page.getByRole('button', { name: 'Failed' }).isVisible()) {
-                test.skip('Test failed in previous run, skipping');
+                writeResult(index, 'Fail');
+                test.skip();
+                return;
             }
 
-            // ── Open the quick-add dropdown ────────────────────────────────────
+            // ── Open the quick-add attachment dropdown ─────────────────────────
             const addBtn = page.getByTestId(
                 'issue-view-foundation.quick-add.quick-add-items-compact.add-button-dropdown--trigger'
             );
@@ -152,72 +220,44 @@ test.describe('Upload evidence (parallel)', () => {
                 'issue.issue-view.views.issue-base.foundation.quick-add.quick-add-item.add-attachment'
             );
 
-            // Wait for the add button to be interactive before clicking
             await addBtn.waitFor({ state: 'visible' });
 
-            // Retry clicking the add button until the attach option appears in the dropdown.
-            // This handles cases where the dropdown closes or re-renders before attaching.
             await retryAction({
-                action: async () => {
-                    await addBtn.click();
-                },
+                action: async () => { await addBtn.click(); },
                 successCheck: async () => {
                     try {
                         await attachBtn.waitFor({ state: 'visible', timeout: 1000 });
                         return true;
-                    } catch {
-                        return false;
-                    }
+                    } catch { return false; }
                 },
                 retries: 20,
+                name: `open attachment dropdown for ${row.Summary}`,
             });
 
-            // ── Attach the evidence file ───────────────────────────────────────
+            // ── Attach the .docx evidence file ─────────────────────────────────
+            if (!fs.existsSync(wordFilePath)) {
+                writeResult(index, 'Fail');
+                throw new Error(`Evidence file not found: ${wordFilePath}`);
+            }
 
-            // Intercept the native file chooser dialog and provide the file path
             const [fileChooser] = await Promise.all([
                 page.waitForEvent('filechooser'),
-                attachBtn.click()
+                attachBtn.click(),
             ]);
+            await fileChooser.setFiles(wordFilePath);
 
-            const wordFilePath = path.join(folderPath, wordFileName);
-
-            if (fs.existsSync(wordFilePath)) {
-                // Mark as Pass in memory before uploading (will be written to CSV at end)
-                record.testStatus = 'Pass';
-                await fileChooser.setFiles(wordFilePath);
-            } else {
-                // Evidence file not found — skip this issue
-                await test.skip(`File not found: ${wordFilePath}`);
-            }
-
-            // Wait for the uploaded filename to appear on the page as upload confirmation
+            // Wait for the filename to confirm the upload completed
             await page.locator(`text=${wordFileName}`).first().waitFor({ timeout: 30000 });
 
-            // ── Set issue status to Pass ───────────────────────────────────────
-            await page.getByTestId('issue-field-status.ui.status-view.status-button.status-button').click();
+            // ── Set issue status to Pass ────────────────────────────────────────
+            await page.getByTestId(
+                'issue-field-status.ui.status-view.status-button.status-button'
+            ).click();
             await page.getByRole('option', { name: 'Pass' }).click();
-            await page.waitForTimeout(1000); // Allow the status change to commit
+            await page.waitForTimeout(1000);
 
-            // ── Write results CSV after the last issue is processed ───────────
-            // Because tests run in parallel, only the last issue in the array
-            // triggers the CSV write.  This is a simple but imperfect heuristic;
-            // a shared results file or post-test hook would be more robust.
-            if (index === array.length - 1) {
-                const outputCsvPath = path.join(
-                    resultsPath,
-                    `${csvFile}_results_${new Date().toISOString().replace(/:/g, '-')}.csv`
-                );
-                const csvContent = stringify(scenarioMap, {
-                    header: true,
-                    // Only quote fields that contain newlines (avoids unnecessary quoting)
-                    quoted: (value, context) => {
-                        return typeof value === 'string' && value.includes('\n');
-                    }
-                });
-                fs.writeFileSync(outputCsvPath, csvContent, 'utf8');
-                console.log(`Results written to ${outputCsvPath}`);
-            }
+            // ── Write this issue's result immediately ──────────────────────────
+            writeResult(index, 'Pass');
         });
     });
 });

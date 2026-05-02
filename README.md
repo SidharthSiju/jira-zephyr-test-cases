@@ -60,6 +60,12 @@ npx playwright test --workers=4
 
 > Increasing `--workers` speeds up the parallel evidence upload step but uses more memory and CPU.
 
+### Full pipeline
+
+```bash
+npx playwright test --project=full-process
+```
+
 ### Import CSV only
 
 ```bash
@@ -69,7 +75,7 @@ npx playwright test --project=setup
 ### Collect created issue links (after import)
 
 ```bash
-npx playwright test --project=scenarios
+npx playwright test --project=scenarios-only
 ```
 
 ### Upload evidence only (if import is already done)

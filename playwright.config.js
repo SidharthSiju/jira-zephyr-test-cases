@@ -90,6 +90,17 @@ export default defineConfig({
       },
     },
 
+    {
+      name: 'full-process',
+      testMatch: 'tests/uploadEvidence.spec.js',
+      dependencies: ['scenarios'],
+      use: {
+        ...devices['Desktop Chrome'],
+        testDataPath: process.env.TEST_DATA_PATH,
+        outputPath: process.env.OUTPUT_PATH
+      },
+    }
+
     // {
     //   name: 'Folder-1',
     //   use: {

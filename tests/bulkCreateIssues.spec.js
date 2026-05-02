@@ -88,7 +88,7 @@ test.describe('Import (serial)', () => {
         await test.setTimeout(500000);
 
         // Navigate to the Jira home page and wait for the UI to load
-        await page.goto('https://okducagile.atlassian.net/', { waitUntil: 'domcontentloaded' });
+        await page.goto(process.env.JIRA_BASE_URL, { waitUntil: 'domcontentloaded' });
 
         // Read paths from environment variables defined in .env
         const folderPath = process.env.TEST_DATA_PATH;
@@ -116,19 +116,19 @@ test.describe('Import (serial)', () => {
 
         // ── Step 4: Select the target Jira project ─────────────────────────────
         const settingPage = new SettingPage(page);
-        await settingPage.updateImportSettings('OKW_FMO_ADM_QA_21_25');
+        await settingPage.updateImportSettings(process.env.JIRA_PROJECT_KEY);
 
         // ── Step 5: Map CSV columns to Jira fields ─────────────────────────────
         const mappingFieldsPage = new MappingFieldsPage(page);
         const fieldMap = {
-            'Description':     'Description',
-            'Epic Link':       'Epic Link',
+            'Description': 'Description',
+            'Epic Link': 'Epic Link',
             'Expected Result': 'Expected Result',
-            'Issue Type':      'Issue Type',
-            'Labels':          'Labels',
-            'Priority':        'Priority',
-            'Story Link':      'link "TestCase"',
-            'Summary':         'Summary'
+            'Issue Type': 'Issue Type',
+            'Labels': 'Labels',
+            'Priority': 'Priority',
+            'Story Link': 'link "TestCase"',
+            'Summary': 'Summary'
         };
         await mappingFieldsPage.updateFieldMappings(fieldMap);
 
