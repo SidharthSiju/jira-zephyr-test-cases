@@ -7,7 +7,6 @@ Automates the end-to-end workflow of bulk-importing test cases from a CSV file i
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) v18 or later
-- A Jira instance with the **Zephyr Squad** plugin installed
 - A folder containing:
   - A single `.csv` file with your test cases
   - One `.docx` evidence file per test case, named exactly after the **Summary** column value (e.g. `My Test Case.docx`)
@@ -55,16 +54,10 @@ This saves your login session to `auth.json` so tests can reuse it without loggi
 ### Full pipeline (import → collect issues → upload evidence)
 
 ```bash
-npx playwright test --workers=4
+npx playwright test --project=full-process --workers=4
 ```
 
 > Increasing `--workers` speeds up the parallel evidence upload step but uses more memory and CPU.
-
-### Full pipeline
-
-```bash
-npx playwright test --project=full-process
-```
 
 ### Import CSV only
 
