@@ -236,7 +236,7 @@ test.describe('Upload evidence (parallel)', () => {
 
             // ── Attach the .docx evidence file ─────────────────────────────────
             if (!fs.existsSync(wordFilePath)) {
-                writeResult(index, 'Fail');
+                //writeResult(index, 'Fail');
                 throw new Error(`Evidence file not found: ${wordFilePath}`);
             }
 
@@ -257,7 +257,7 @@ test.describe('Upload evidence (parallel)', () => {
             await page.waitForTimeout(1000);
 
             // ── Write this issue's result immediately ──────────────────────────
-            writeResult(index, 'Pass');
+            //writeResult(index, 'Pass');
         });
     });
 });
