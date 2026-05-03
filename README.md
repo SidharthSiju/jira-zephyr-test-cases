@@ -156,3 +156,6 @@ Each row contains the original CSV data plus:
 - `link.json` and `issues.json` are intermediate runtime files written to the project root. They are read by the next stage in the pipeline.
 - Evidence files **must** be named exactly as the `Summary` field in the CSV, with a `.docx` extension.
 - The `auth.json` file contains sensitive session tokens — do not commit it to version control. It is already listed in `.gitignore`.
+
+
+### Comment
