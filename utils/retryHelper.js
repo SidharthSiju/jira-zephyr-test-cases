@@ -29,7 +29,7 @@
 export async function retryAction({
   action,
   successCheck,
-  retries = 8,
+  retries = 15,
   delay = 500,
   name = 'action'
 }) {

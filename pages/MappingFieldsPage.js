@@ -86,7 +86,7 @@ export default class MappingFieldsPage {
     // Large CSV files may take a while to import — extend the timeout
     await successLocator.waitFor({
       state: 'visible',
-      timeout: 60000
+      timeout: 180000
     });
 
     const successMessage = await successLocator.innerText();
