@@ -91,7 +91,7 @@ export default defineConfig({
     },
 
     {
-      name: 'full-process',
+      name: 'evidence',
       testMatch: 'tests/uploadEvidence.spec.js',
       dependencies: ['scenarios'],
       use: {
@@ -99,7 +99,28 @@ export default defineConfig({
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
-    }
+    },
+
+    {
+      name: 'full-process',
+      testMatch: 'tests/downloadCSV.spec.js',
+      dependencies: ['evidence'],
+      use: {
+        ...devices['Desktop Chrome'],
+        testDataPath: process.env.TEST_DATA_PATH,
+        outputPath: process.env.OUTPUT_PATH
+      },
+    },
+
+    {
+      name: 'download-csv',
+      testMatch: 'tests/downloadCSV.spec.js',
+      use: {
+        ...devices['Desktop Chrome'],
+        testDataPath: process.env.TEST_DATA_PATH,
+        outputPath: process.env.OUTPUT_PATH
+      },
+    },
 
     // {
     //   name: 'Folder-1',
