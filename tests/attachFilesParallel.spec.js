@@ -73,7 +73,7 @@ test.describe('Get scenarios', () => {
     // ── Navigate and wait for the issue table to be fully ready ───────────────
     // 'networkidle' ensures Jira's async panel loading has settled before we
     // try to interact with the table or scroll container.
-    await page.goto(link, { waitUntil: 'networkidle', timeout: 60000 });
+    await page.goto(link);
 
     // Wait for the table body to contain at least one row before proceeding
     await page.locator('[data-vc="issue-table"] tbody tr').first()
