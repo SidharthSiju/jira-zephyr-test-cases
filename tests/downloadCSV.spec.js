@@ -6,6 +6,7 @@ const dotenv = require('dotenv');
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const PROJECT_ROOT = path.resolve(__dirname, '..');
+const resultsFile = process.env.FOLDER_NAME;
 
 test.use({ storageState: 'auth.json' });
 
@@ -42,7 +43,7 @@ test.describe('Download CSV', () => {
         const download = await downloadPromise;
 
         // 👇 Define your custom path
-        const downloadPath = path.join(process.env.OUTPUT_PATH, 'exported_issues.csv');
+        const downloadPath = path.join(process.env.OUTPUT_PATH, `${resultsFile}_results.csv`);
 
         // Ensure folder exists
         fs.mkdirSync(path.dirname(downloadPath), { recursive: true });
