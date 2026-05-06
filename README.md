@@ -37,7 +37,7 @@ FOLDER_NAME=your-folder-name
 | `OUTPUT_PATH`    | Absolute path where the output results CSV will be saved          |
 | `FOLDER_NAME`    | Name of the folder (used for labelling in output)                 |
 
-### 4. Save browser authentication state
+### 3. Save browser authentication state
 
 Run the following command, log in to Jira in the browser that opens, then close it:
 
@@ -103,6 +103,11 @@ The automation runs in three sequential stages:
                   → Attaches the matching .docx file
                   → Sets the issue status to Pass
                   → Writes a timestamped results CSV to OUTPUT_PATH
+
+[download]      downloadCSV.spec.js
+                  → Navigates to all finished test cases through link.json
+                  → Downloads the report for the current test cases
+                  → Saves it into the output_path folder
 ```
 
 ---
