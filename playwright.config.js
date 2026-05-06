@@ -42,7 +42,8 @@ export default defineConfig({
       name: 'setup',
       testMatch: 'tests/bulkCreateIssues.spec.js',
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
@@ -53,7 +54,8 @@ export default defineConfig({
       testMatch: 'tests/attachFilesParallel.spec.js',
       dependencies: ['setup'],
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
@@ -63,7 +65,8 @@ export default defineConfig({
       name: 'scenarios-only',
       testMatch: 'tests/attachFilesParallel.spec.js',
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
@@ -74,7 +77,8 @@ export default defineConfig({
       testMatch: 'tests/uploadEvidence.spec.js',
       dependencies: ['scenarios-only'],
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
@@ -84,7 +88,8 @@ export default defineConfig({
       name: 'evidence-only',
       testMatch: 'tests/uploadEvidence.spec.js',
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
@@ -95,7 +100,8 @@ export default defineConfig({
       testMatch: 'tests/uploadEvidence.spec.js',
       dependencies: ['scenarios'],
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
@@ -106,7 +112,8 @@ export default defineConfig({
       testMatch: 'tests/downloadCSV.spec.js',
       dependencies: ['evidence'],
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
@@ -116,7 +123,8 @@ export default defineConfig({
       name: 'download-csv',
       testMatch: 'tests/downloadCSV.spec.js',
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
@@ -127,7 +135,8 @@ export default defineConfig({
       testMatch: 'tests/downloadCSV.spec.js',
       dependencies: ['evidence-with-scenarios'],
       use: {
-        ...devices['Desktop Chrome'],
+        ...devices['Desktop Edge'],
+        channel: 'msedge',
         testDataPath: process.env.TEST_DATA_PATH,
         outputPath: process.env.OUTPUT_PATH
       },
